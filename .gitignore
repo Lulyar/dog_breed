@@ -1,0 +1,34 @@
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Machine Learning / AI Models
+*.h5
+*.keras
+*.hdf5
+*.pkl
+model.weights.h5
+model_anjing_10_kelas.keras
+
+# Datasets / Uploads user
+/dataset/
+/static/uploads/
+/uploads/
+/data/
+
+# OS / Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
