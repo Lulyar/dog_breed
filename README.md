@@ -31,7 +31,7 @@ Ensure you have Python installed. The following libraries are required to run th
 - NumPy
 - Werkzeug
 
-You can install them using pip:
+You can install them using pip :
 pip install Flask tensorflow numpy Werkzeug
 
 ## How to Run the Application
