@@ -1,35 +1,135 @@
 import os
+import io
 import numpy as np
 import traceback
 from flask import Flask, request, jsonify, render_template
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
-from werkzeug.utils import secure_filename
+from PIL import Image
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs('static', exist_ok=True)
 os.makedirs('templates', exist_ok=True)
 
-# Load Model
-MODEL_PATH = 'model_anjing_10_kelas_clean.keras'
-print(f"Loading model from {MODEL_PATH}...")
-try:
-    model = load_model(MODEL_PATH)
-    # Default input shape: (None, height, width, channels)
-    # If the model has an input shape, we try to use it
-    input_shape = model.input_shape
-    if input_shape and len(input_shape) >= 3:
-        TARGET_SIZE = (input_shape[1], input_shape[2])
-        print(f"Model loaded successfully. Inferred target size: {TARGET_SIZE}")
-    else:
-        TARGET_SIZE = (224, 224) 
-        print(f"Model loaded successfully. Could not infer target size, defaulting to: {TARGET_SIZE}")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    TARGET_SIZE = (224, 224)
-    model = None
+# --- Model Configuration ---
+WEIGHTS_PATH = 'model.weights.h5'
+TARGET_SIZE = (224, 224)  # EfficientNetV2-B0 default input size
+NUM_CLASSES = 10
+
+print("=" * 50)
+print("Loading EfficientNetV2-B0 model...")
+print("=" * 50)
+
+model = None
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+from tensorflow.keras.applications import EfficientNetV2B0
+
+
+def try_load_model():
+    """Try multiple strategies to load the model."""
+
+    # ------------------------------------------------------------------
+    # Strategy 1: EfficientNetV2B0 with include_top=True, classes=10
+    # ------------------------------------------------------------------
+    try:
+        print("[Strategy 1] EfficientNetV2B0(include_top=True, classes=10)...")
+        m = EfficientNetV2B0(
+            weights=None,
+            include_top=True,
+            classes=NUM_CLASSES,
+            classifier_activation='softmax',
+            input_shape=(224, 224, 3)
+        )
+        m.load_weights(WEIGHTS_PATH)
+        print("[Strategy 1] SUCCESS!")
+        return m
+    except Exception as e:
+        print(f"[Strategy 1] Failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Strategy 2: Sequential(EfficientNetV2B0(include_top=False) + head)
+    # ------------------------------------------------------------------
+    try:
+        print("[Strategy 2] Sequential + include_top=False + custom head...")
+        base = EfficientNetV2B0(
+            weights=None,
+            include_top=False,
+            input_shape=(224, 224, 3)
+        )
+        m = Sequential([
+            base,
+            GlobalAveragePooling2D(),
+            Dense(NUM_CLASSES, activation='softmax')
+        ])
+        m.load_weights(WEIGHTS_PATH)
+        print("[Strategy 2] SUCCESS!")
+        return m
+    except Exception as e:
+        print(f"[Strategy 2] Failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Strategy 3: Load weights by name (skip mismatched layers)
+    # ------------------------------------------------------------------
+    try:
+        print("[Strategy 3] Sequential + load_weights(by_name=True, skip)...")
+        base = EfficientNetV2B0(
+            weights=None,
+            include_top=False,
+            input_shape=(224, 224, 3)
+        )
+        m = Sequential([
+            base,
+            GlobalAveragePooling2D(),
+            Dense(NUM_CLASSES, activation='softmax')
+        ])
+        m.load_weights(WEIGHTS_PATH, skip_mismatch=True, by_name=True)
+        print("[Strategy 3] SUCCESS (some weights may be skipped)!")
+        return m
+    except Exception as e:
+        print(f"[Strategy 3] Failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Strategy 4: Re-zip as .keras and use load_model
+    # ------------------------------------------------------------------
+    try:
+        import zipfile
+        keras_path = 'model_efnv2b0.keras'
+        print(f"[Strategy 4] Re-packaging as {keras_path} and using load_model...")
+        with zipfile.ZipFile(keras_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write('config.json', 'config.json')
+            zf.write(WEIGHTS_PATH, 'model.weights.h5')
+            if os.path.exists('metadata.json'):
+                zf.write('metadata.json', 'metadata.json')
+        from tensorflow.keras.models import load_model
+        m = load_model(keras_path, compile=False)
+        print("[Strategy 4] SUCCESS!")
+        return m
+    except Exception as e:
+        print(f"[Strategy 4] Failed: {e}")
+
+    return None
+
+
+model = try_load_model()
+if model is not None:
+    print("=" * 50)
+    print("Model loaded successfully!")
+    print(f"  Input shape  : {model.input_shape}")
+    print(f"  Output shape : {model.output_shape}")
+    print(f"  Total params : {model.count_params():,}")
+    print("=" * 50)
+
+    # Warmup: run a dummy prediction so TensorFlow compiles the graph now
+    # instead of making the first real prediction slow
+    print("Warming up model (first prediction compile)...")
+    dummy = np.zeros((1, 224, 224, 3), dtype=np.float32)
+    _ = model(dummy, training=False)
+    print("Warmup done! Model is ready for fast predictions.")
+else:
+    print("=" * 50)
+    print("FAILED: Could not load model with any strategy!")
+    print("=" * 50)
 
 # Class Names mapped directly from the alphabetical folder names
 CLASS_NAMES = [
@@ -45,16 +145,24 @@ CLASS_NAMES = [
     "Afghan Hound"
 ]
 
-def preprocess_image(img_path, target_size=TARGET_SIZE):
-    img = image.load_img(img_path, target_size=target_size)
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array /= 255.0  # Normalize to [0,1]
+
+def preprocess_image(img: Image.Image, target_size=TARGET_SIZE):
+    """Preprocess PIL Image in memory for prediction.
+
+    EfficientNetV2-B0 has built-in Rescaling + Normalization,
+    so just pass raw pixel values (0-255), no manual normalization.
+    """
+    img = img.convert('RGB')
+    img = img.resize(target_size)
+    img_array = np.array(img, dtype=np.float32)  # (H, W, 3) values [0, 255]
+    img_array = np.expand_dims(img_array, axis=0)  # (1, H, W, 3)
     return img_array
+
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -63,42 +171,35 @@ def predict():
 
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
-    if file:
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+    try:
+        # Read image directly in memory (no saving to disk)
+        img_bytes = file.read()
+        img = Image.open(io.BytesIO(img_bytes))
 
-        try:
-            # Preprocess image
-            img_tensor = preprocess_image(filepath, target_size=TARGET_SIZE)
-            
-            # Predict
-            predictions = model.predict(img_tensor)
-            class_idx = np.argmax(predictions[0])
-            confidence = float(predictions[0][class_idx]) * 100
-            predicted_class = CLASS_NAMES[class_idx]
+        # Preprocess image in memory
+        img_tensor = preprocess_image(img, target_size=TARGET_SIZE)
 
-            # Cleanup
-            if os.path.exists(filepath):
-                os.remove(filepath)
+        # Direct model call (MUCH faster than model.predict() for single images)
+        predictions = model(img_tensor, training=False).numpy()
+        class_idx = np.argmax(predictions[0])
+        confidence = float(predictions[0][class_idx]) * 100
+        predicted_class = CLASS_NAMES[class_idx]
 
-            return jsonify({
-                'class': predicted_class,
-                'confidence': f"{confidence:.2f}%"
-            })
-        except ValueError as e:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            return jsonify({'error': f'Value error (check target size): {str(e)}'}), 500
-        except Exception as e:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            return jsonify({'error': 'Prediction failed: ' + str(e) + '\n' + traceback.format_exc()}), 500
+        return jsonify({
+            'class': predicted_class,
+            'confidence': f"{confidence:.2f}%"
+        })
+    except Exception as e:
+        return jsonify({
+            'error': 'Prediction failed: ' + str(e)
+        }), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+

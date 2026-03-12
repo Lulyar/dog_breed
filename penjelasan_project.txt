@@ -1,0 +1,268 @@
+================================================================================
+     PENJELASAN PROJECT KLASIFIKASI RAS ANJING
+     Menggunakan EfficientNetV2-B0 + Flask Web Application
+================================================================================
+
+Nama Project : Dog Breed Classifier (Klasifikasi Ras Anjing)
+Arsitektur   : EfficientNetV2-B0 (Transfer Learning)
+Framework ML : TensorFlow / Keras 3
+Framework Web: Flask (Python)
+Input Size   : 224 x 224 x 3 (RGB)
+Jumlah Kelas : 10 ras anjing
+File Model   : model.weights.h5 (satu-satunya file model yang digunakan)
+
+
+================================================================================
+BAGIAN 1: CARA KERJA APLIKASI (FLOW PREDIKSI)
+================================================================================
+
+1. User upload gambar anjing melalui browser (index.html)
+2. Flask menerima gambar di endpoint /predict (POST)
+3. Gambar dibaca langsung di MEMORY menggunakan PIL + BytesIO
+   (TIDAK disimpan ke disk sama sekali)
+4. Gambar di-resize ke 224x224 pixel dan diubah ke array numpy float32
+5. Array dikirim ke model menggunakan direct call: model(input, training=False)
+   (lebih cepat dari model.predict() untuk 1 gambar)
+6. Di dalam model:
+   a. Rescaling layer: pixel [0,255] -> [0,1]
+   b. Normalization layer: apply ImageNet mean & variance
+   c. EfficientNetV2-B0 backbone: extract fitur gambar
+   d. GlobalAveragePooling2D / classification head
+   e. Dense(10, softmax): output 10 probabilitas
+7. Ambil kelas dengan probabilitas tertinggi (np.argmax)
+8. Kirim hasil prediksi (nama ras + confidence) ke browser sebagai JSON
+
+
+================================================================================
+BAGIAN 2: CARA MEMBUAT PROJECT INI
+================================================================================
+
+2.1 Persiapan Environment
+-------------------------
+a) Install Python 3.9 atau lebih baru
+b) Install dependencies:
+   pip install tensorflow flask numpy pillow
+
+2.2 Struktur File Project
+--------------------------
+ras_anjing/
+|-- app.py                  -> Aplikasi utama Flask (backend + API)
+|-- model.weights.h5        -> Bobot model yang sudah dilatih (WAJIB ADA)
+|-- templates/
+|   |-- index.html          -> Halaman web utama (frontend)
+|-- static/
+|   |-- style.css           -> Styling halaman web
+|-- image/                  -> Folder gambar referensi/contoh
+|-- penjelasan_project.txt  -> Dokumentasi teknis
+|-- penjelasan_untuk_dosen.txt -> Penjelasan sederhana
+
+2.3 Alur Pembuatan Model (Training)
+-------------------------------------
+Model dibuat dengan pendekatan Transfer Learning:
+
+a) Siapkan dataset gambar 10 ras anjing yang sudah diorganisir per folder
+
+b) Load base model EfficientNetV2-B0 (pre-trained dari ImageNet):
+   base_model = EfficientNetV2B0(weights='imagenet', include_top=False,
+                                  input_shape=(224, 224, 3))
+   base_model.trainable = False  # Freeze bobot base model
+
+c) Tambahkan classification head:
+   model = Sequential([
+       base_model,
+       GlobalAveragePooling2D(),
+       Dense(10, activation='softmax')
+   ])
+
+d) Compile dan train:
+   model.compile(optimizer='adam', loss='categorical_crossentropy',
+                 metrics=['accuracy'])
+   model.fit(train_data, epochs=..., validation_data=val_data)
+
+e) Simpan bobot: model.save_weights('model.weights.h5')
+
+2.4 Cara Menjalankan Aplikasi
+------------------------------
+a) Pastikan file model.weights.h5 ada di folder project
+b) Jalankan:  python app.py
+c) Buka browser: http://localhost:5000
+d) Upload gambar anjing dan lihat hasil prediksi
+
+
+================================================================================
+BAGIAN 3: CARA MODEL DI-LOAD DI APP.PY
+================================================================================
+
+Model TIDAK di-load dari file .keras atau config.json.
+Arsitektur dibangun MANUAL menggunakan keras.applications.EfficientNetV2B0,
+lalu bobot (weights) dimuat dari file model.weights.h5.
+
+App.py memiliki 4 strategi loading otomatis (fallback):
+
+  Strategy 1: EfficientNetV2B0(include_top=True, classes=10)
+              + load_weights('model.weights.h5')
+
+  Strategy 2: Sequential([
+                EfficientNetV2B0(include_top=False),
+                GlobalAveragePooling2D(),
+                Dense(10, softmax)
+              ]) + load_weights('model.weights.h5')
+
+  Strategy 3: Sama seperti Strategy 2 tapi load_weights dengan
+              by_name=True dan skip_mismatch=True
+
+  Strategy 4: Re-zip config.json + model.weights.h5 sebagai .keras
+              lalu gunakan load_model()
+
+Strategi dicoba satu per satu. Jika satu gagal, otomatis lanjut
+ke strategi berikutnya. Ini membuat app.py robust terhadap
+perbedaan format penyimpanan model.
+
+Setelah model berhasil di-load, dilakukan WARMUP:
+  dummy = np.zeros((1, 224, 224, 3))
+  model(dummy, training=False)
+
+Ini agar TensorFlow compile graph saat startup, sehingga prediksi
+pertama oleh user tidak lambat.
+
+
+================================================================================
+BAGIAN 4: OPTIMISASI KECEPATAN PREDIKSI
+================================================================================
+
+a) WARMUP saat startup
+   TensorFlow harus meng-compile computational graph sebelum bisa
+   melakukan prediksi. Tanpa warmup, prediksi pertama sangat lambat.
+   Dengan warmup, graph sudah di-compile saat server start.
+
+b) Direct model call: model(input, training=False)
+   Digunakan alih-alih model.predict(input) karena:
+   - model.predict() dirancang untuk batch besar, ada overhead
+     (batching, progress bar, callbacks)
+   - model() langsung forward pass tanpa overhead
+   - Untuk 1 gambar, model() jauh lebih cepat
+
+c) In-memory image processing
+   Gambar dibaca langsung dari request ke memory (BytesIO + PIL).
+   Tidak ada file I/O ke disk, menghilangkan overhead baca/tulis file.
+
+
+================================================================================
+BAGIAN 5: ARSITEKTUR EFFICIENTNETV2-B0
+================================================================================
+
+5.1 Apa itu EfficientNetV2?
+-----------------------------
+EfficientNetV2 adalah keluarga model CNN (Convolutional Neural Network)
+dari Google. Varian B0 adalah yang paling ringan.
+
+5.2 Konstruksi Model
+----------------------
+  INPUT (224, 224, 3)
+     |
+  [Rescaling]           -> pixel 0-255 menjadi 0-1
+     |
+  [Normalization]       -> standarisasi warna (ImageNet mean & variance)
+     |
+  [Stem Block]          -> Conv2D(32, 3x3, stride 2) + BatchNorm + SiLU
+     |                     resolusi: 224 -> 112
+  [Stage 1: Fused-MBConv] 1 blok, 16 filter, resolusi 112
+  [Stage 2: Fused-MBConv] 2 blok, 32 filter, resolusi 56
+  [Stage 3: Fused-MBConv] 2 blok, 48 filter, resolusi 28
+  [Stage 4: MBConv + SE]  3 blok, 96 filter, resolusi 14
+  [Stage 5: MBConv + SE]  5 blok, 112 filter, resolusi 14
+  [Stage 6: MBConv + SE]  8 blok, 192 filter, resolusi 7
+     |
+  [Top Conv]            -> Conv2D(1280, 1x1) + BatchNorm + SiLU
+     |
+  [GlobalAveragePooling2D] -> 7x7x1280 menjadi vektor 1280
+     |
+  [Dense(10, softmax)]  -> 10 probabilitas kelas
+     |
+  OUTPUT
+
+5.3 Blok Fused-MBConv (Stage 1-3)
+-----------------------------------
+  Input -> Conv2D(expand) -> BatchNorm -> SiLU
+        -> Conv2D(project) -> BatchNorm -> [+ Residual] -> Output
+
+  Digunakan pada resolusi tinggi karena Conv2D biasa lebih efisien
+  di GPU dibanding Depthwise Separable pada ukuran besar.
+
+5.4 Blok MBConv + SE (Stage 4-6)
+----------------------------------
+  Input -> Conv2D(expand, 1x1) -> BatchNorm -> SiLU
+        -> DepthwiseConv2D(3x3) -> BatchNorm -> SiLU
+        -> [SE: GlobalAvgPool -> Dense(reduce) -> SiLU
+               -> Dense(expand) -> Sigmoid -> Multiply]
+        -> Conv2D(project, 1x1) -> BatchNorm
+        -> [Dropout (Stochastic Depth)] -> [+ Residual] -> Output
+
+
+================================================================================
+BAGIAN 6: PENJELASAN LAYER-LAYER
+================================================================================
+
++------------------------------+--------------------------------------------+
+| Layer                        | Fungsi                                     |
++------------------------------+--------------------------------------------+
+| Conv2D                       | Mendeteksi pola/fitur dari gambar          |
+| DepthwiseConv2D              | Seperti Conv2D tapi lebih ringan (hemat)   |
+| BatchNormalization           | Menstabilkan training agar cepat & stabil  |
+| SiLU Activation (Swish)      | Fungsi aktivasi nonlinear (x * sigmoid(x)) |
+| Rescaling                    | Normalisasi pixel 0-255 ke 0-1             |
+| Normalization                | Standarisasi warna sesuai ImageNet         |
+| GlobalAveragePooling2D       | Merangkum feature map jadi 1 vektor        |
+| Squeeze-and-Excitation (SE)  | Channel attention (bobot per channel)      |
+| Add (Residual Connection)    | Skip connection: output = block(x) + x     |
+| Dropout                      | Mematikan neuron acak (cegah overfitting)  |
+| Dense + Softmax              | Menghasilkan probabilitas per kelas        |
++------------------------------+--------------------------------------------+
+
+
+================================================================================
+BAGIAN 7: DROPOUT
+================================================================================
+
+a) STOCHASTIC DEPTH DROPOUT (di dalam backbone)
+   - Jumlah: 13 layer
+   - Mematikan SELURUH BLOK secara acak saat training
+   - Rate naik seiring kedalaman (2% -> 11%)
+   - Layer awal jarang di-drop (fitur dasar penting)
+   - Layer akhir lebih sering di-drop (fitur lebih redundan)
+
+b) DROPOUT BIASA (di classification head, jika ada)
+   - Mematikan neuron individual secara acak
+   - Mencegah classification head menghafal data training
+
+
+================================================================================
+BAGIAN 8: 10 KELAS RAS ANJING
+================================================================================
+
+  0: Chihuahua           5: Blenheim Spaniel
+  1: Japanese Spaniel    6: Papillon
+  2: Maltese Dog         7: Toy Terrier
+  3: Pekinese            8: Rhodesian Ridgeback
+  4: Shih-Tzu            9: Afghan Hound
+
+
+================================================================================
+BAGIAN 9: RINGKASAN TEKNOLOGI
+================================================================================
+
+  Bahasa Pemrograman  : Python 3.x
+  Framework ML        : TensorFlow + Keras 3
+  Framework Web       : Flask
+  Base Model          : EfficientNetV2-B0 (pretrained ImageNet)
+  Metode Training     : Transfer Learning
+  File Model          : model.weights.h5 (bobot terlatih saja)
+  Arsitektur Model    : Dibangun manual pakai keras.applications
+  Image Processing    : In-memory (PIL + BytesIO, tanpa simpan ke disk)
+  Prediksi            : Direct call model(), bukan model.predict()
+  Input               : Gambar 224x224 RGB
+  Output              : 10 probabilitas kelas (softmax)
+
+================================================================================
+Dibuat: 12 Maret 2026
+================================================================================

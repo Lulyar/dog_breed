@@ -1,0 +1,213 @@
+================================================================================
+   PENJELASAN SEDERHANA - KLASIFIKASI RAS ANJING
+   EfficientNetV2-B0
+================================================================================
+
+
+1. ARSITEKTUR MODEL
+================================================================================
+
+Model yang digunakan adalah EfficientNetV2-B0, yaitu model deep learning
+buatan Google yang sudah dilatih mengenali jutaan gambar (ImageNet).
+Kami menggunakan teknik Transfer Learning, artinya mengambil "otak" model
+yang sudah pintar mengenali gambar, lalu melatih ulang bagian akhirnya
+supaya bisa mengenali 10 ras anjing.
+
+Cara model di-load di aplikasi:
+  Arsitektur model TIDAK dibaca dari file config. Arsitektur dibangun
+  ulang secara manual menggunakan keras.applications.EfficientNetV2B0,
+  kemudian bobot (weights) yang sudah dilatih dimuat dari file
+  model.weights.h5. Ini adalah satu-satunya file model yang diperlukan.
+
+Susunan model secara sederhana:
+
+  Gambar Anjing (224 x 224 pixel, warna RGB)
+       |
+       v
+  [1] RESCALING -----------> Mengubah nilai pixel 0-255 menjadi 0-1
+       |
+       v
+  [2] NORMALIZATION -------> Menyesuaikan warna sesuai standar ImageNet
+       |
+       v
+  [3] EFFICIENTNETV2-B0 ---> "Otak" utama yang mengekstrak ciri-ciri
+       |                     gambar (bentuk telinga, pola bulu, dll)
+       |
+       v
+  [4] CLASSIFICATION HEAD -> Merangkum semua ciri dan menghasilkan
+       |                     10 probabilitas (1 per ras anjing)
+       |
+       v
+  Hasil: "Chihuahua, 95.3%"
+
+
+2. LAYER-LAYER DI PROJECT INI DAN JUMLAHNYA
+================================================================================
+
++------+------------------------------+--------+-----------------------------+
+| No.  | Jenis Layer                  | Jumlah | Fungsi Sederhana            |
++------+------------------------------+--------+-----------------------------+
+|  1   | InputLayer                   |   2    | Menerima gambar masukan     |
++------+------------------------------+--------+-----------------------------+
+|  2   | Rescaling                    |   1    | Ubah pixel 0-255 jadi 0-1  |
++------+------------------------------+--------+-----------------------------+
+|  3   | Normalization                |   1    | Standarisasi warna gambar   |
++------+------------------------------+--------+-----------------------------+
+|  4   | Conv2D                       |  50    | Mendeteksi pola/fitur dari  |
+|      | (Convolutional 2D)           |        | gambar (tepi, tekstur, dll) |
++------+------------------------------+--------+-----------------------------+
+|  5   | DepthwiseConv2D              |  13    | Sama seperti Conv2D tapi    |
+|      |                              |        | lebih ringan (hemat memori) |
++------+------------------------------+--------+-----------------------------+
+|  6   | BatchNormalization           |  49    | Menstabilkan proses belajar |
+|      |                              |        | agar lebih cepat & konsisten|
++------+------------------------------+--------+-----------------------------+
+|  7   | Activation (SiLU/Swish)      |  35    | Fungsi aktivasi agar model  |
+|      |                              |        | bisa belajar pola kompleks  |
++------+------------------------------+--------+-----------------------------+
+|  8   | GlobalAveragePooling2D       |  14    | Merangkum feature map jadi  |
+|      |                              |        | 1 angka per channel         |
++------+------------------------------+--------+-----------------------------+
+|  9   | Reshape                      |  13    | Mengubah bentuk data untuk  |
+|      |                              |        | masuk ke SE (attention)     |
++------+------------------------------+--------+-----------------------------+
+| 10   | Multiply                     |  13    | Mengalikan bobot perhatian  |
+|      |                              |        | ke feature map              |
++------+------------------------------+--------+-----------------------------+
+| 11   | Add (Residual Connection)    |  13    | Menghubungkan input ke      |
+|      |                              |        | output blok (shortcut)      |
++------+------------------------------+--------+-----------------------------+
+| 12   | Dropout                      |  14    | Mematikan neuron acak untuk |
+|      |                              |        | mencegah overfitting        |
++------+------------------------------+--------+-----------------------------+
+| 13   | Dense                        |   1    | Layer terakhir, menghasilkan|
+|      |                              |        | 10 probabilitas kelas       |
++------+------------------------------+--------+-----------------------------+
+|      | TOTAL LAYER (kurang lebih)   | ~220   |                             |
++------+------------------------------+--------+-----------------------------+
+
+
+3. DROPOUT DI PROJECT INI
+================================================================================
+
+Dropout itu ibarat "ujian dadakan" untuk model.
+
+Bayangkan kelas berisi 100 murid. Saat latihan soal, guru secara acak
+menyuruh 20 murid keluar. Murid yang tersisa harus tetap bisa mengerjakan
+soal. Ini memaksa SETIAP murid untuk benar-benar paham, bukan cuma
+mengandalkan teman pintar.
+
+Di project ini ada 2 jenis Dropout:
+
+a) STOCHASTIC DEPTH DROPOUT (di dalam backbone EfficientNetV2-B0)
+   - Jumlah: 13 layer Dropout
+   - Cara kerja: Mematikan SELURUH BLOK (bukan per neuron) secara acak
+   - Rate makin naik di layer yang lebih dalam:
+     * Layer awal : ~2% (jarang di-drop, fitur dasarnya penting)
+     * Layer tengah: ~7% (kadang di-drop)
+     * Layer akhir : ~11% (lebih sering, fitur sudah redundan)
+   - Hanya aktif saat TRAINING, saat prediksi semua blok aktif
+
+b) DROPOUT BIASA (di classification head)
+   - Jumlah: 1 layer Dropout
+   - Tujuan: Mencegah classification head menghafal data training
+
+Kenapa butuh Dropout?
+   Tanpa Dropout, model bisa "menghafal" data training (overfitting).
+   Model jadi pintar mengenali gambar yang sudah pernah dilihat, tapi
+   buruk saat melihat gambar baru. Dropout memaksa model belajar fitur
+   yang benar-benar berguna.
+
+
+4. ARSITEKTUR DETAIL EFFICIENTNETV2-B0
+================================================================================
+
+EfficientNetV2-B0 tersusun dari 6 stage (tahapan):
+
+  STAGE 1: Fused-MBConv (1 blok)
+  - Resolusi: 112 x 112, Filter: 16
+  - Mengekstrak fitur paling dasar (garis, tepi, sudut)
+
+  STAGE 2: Fused-MBConv (2 blok)
+  - Resolusi: 56 x 56, Filter: 32
+  - Mengekstrak tekstur dan pola sederhana
+
+  STAGE 3: Fused-MBConv (2 blok)
+  - Resolusi: 28 x 28, Filter: 48
+  - Mengekstrak pola yang lebih kompleks (bulu, bentuk)
+
+  STAGE 4: MBConv + SE (3 blok)
+  - Resolusi: 14 x 14, Filter: 96
+  - Mulai mengenali bagian tubuh (telinga, mata, hidung)
+
+  STAGE 5: MBConv + SE (5 blok)
+  - Resolusi: 14 x 14, Filter: 112
+  - Mengenali kombinasi fitur (bentuk wajah, pola warna)
+
+  STAGE 6: MBConv + SE (8 blok)
+  - Resolusi: 7 x 7, Filter: 192
+  - Mengenali ciri khas tiap ras anjing secara keseluruhan
+
+  Diakhiri dengan:
+  - Top Conv (1280 filter) -> merangkum semua fitur
+  - GlobalAveragePooling2D -> 7x7x1280 menjadi vektor 1280
+  - Dense(10, softmax) -> keputusan akhir: ras anjing apa?
+
+
+5. OPTIMISASI KECEPATAN
+================================================================================
+
+Aplikasi ini menggunakan 3 teknik agar prediksi cepat:
+
+a) WARMUP saat startup
+   Saat server pertama kali nyala, model langsung dijalankan sekali
+   dengan gambar dummy (kosong). Ini agar TensorFlow menyiapkan
+   semua komputasinya di awal. Tanpa ini, prediksi pertama oleh
+   user akan sangat lambat.
+
+b) Direct model call: model(input) alih-alih model.predict(input)
+   model.predict() dirancang untuk memproses ratusan gambar sekaligus
+   sehingga ada overhead yang tidak perlu untuk 1 gambar.
+   model() langsung memproses tanpa overhead, jauh lebih cepat.
+
+c) Proses gambar di memory (tanpa simpan ke disk)
+   Gambar yang di-upload user langsung dibaca di memory menggunakan
+   PIL (Python Imaging Library) + BytesIO. Tidak ada gambar yang
+   disimpan ke folder manapun. Ini menghilangkan waktu baca/tulis file.
+
+
+6. KESIMPULAN
+================================================================================
+
+a) Project ini adalah aplikasi web untuk mengklasifikasi 10 ras anjing
+   dari gambar yang di-upload oleh pengguna.
+
+b) Menggunakan metode Transfer Learning dengan backbone EfficientNetV2-B0,
+   model CNN dari Google yang sudah dilatih pada jutaan gambar (ImageNet).
+   Hanya bagian classification head yang dilatih ulang untuk 10 ras anjing.
+
+c) File model yang digunakan hanya satu: model.weights.h5 (berisi bobot
+   terlatih). Arsitektur model dibangun ulang secara manual di app.py
+   menggunakan keras.applications.EfficientNetV2B0.
+
+d) Model memiliki sekitar 220 layer, terdiri dari:
+   - Layer konvolusi (Conv2D + DepthwiseConv2D): ~63 layer -> ekstraksi fitur
+   - BatchNormalization: ~49 layer -> stabilisasi training
+   - Activation (SiLU): ~35 layer -> nonlinearitas
+   - Dropout: 14 layer -> pencegahan overfitting
+   - SE Block (attention): 13 set -> fokus pada fitur penting
+   - Residual Connection: 13 -> mempermudah gradient flow
+   - Dense: 1 layer -> keputusan akhir klasifikasi
+
+e) Dropout berperan penting mencegah overfitting, dengan 2 jenis:
+   Stochastic Depth (13 layer, rate 2%-11%) di backbone, dan
+   Dropout biasa (1 layer) di classification head.
+
+f) Gambar yang di-upload user diproses langsung di memory tanpa
+   disimpan ke disk, sehingga lebih cepat dan tidak meninggalkan
+   file sisa di server.
+
+g) Optimisasi kecepatan dilakukan dengan warmup saat startup dan
+   menggunakan direct model call alih-alih model.predict().
+
+================================================================================
