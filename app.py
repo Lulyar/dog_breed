@@ -13,6 +13,7 @@ os.makedirs('templates', exist_ok=True)
 WEIGHTS_PATH = 'model.weights.h5'
 TARGET_SIZE = (224, 224)  # EfficientNetV2-B0 default input size
 NUM_CLASSES = 10
+CONFIDENCE_THRESHOLD = 60.0  # Minimum confidence (%) to accept as valid dog prediction
 
 print("=" * 50)
 print("Loading EfficientNetV2-B0 model...")
@@ -190,7 +191,16 @@ def predict():
         confidence = float(predictions[0][class_idx]) * 100
         predicted_class = CLASS_NAMES[class_idx]
 
+        if confidence < CONFIDENCE_THRESHOLD:
+            return jsonify({
+                'is_dog': False,
+                'class': predicted_class,
+                'confidence': f"{confidence:.2f}%",
+                'warning': 'Gambar bukan anjing atau tidak dapat dikenali sebagai ras yang didukung.'
+            })
+
         return jsonify({
+            'is_dog': True,
             'class': predicted_class,
             'confidence': f"{confidence:.2f}%"
         })

@@ -5,18 +5,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const imagePreview = document.getElementById('image-preview');
     const removeImgBtn = document.getElementById('remove-img-btn');
     const predictBtn = document.getElementById('predict-btn');
-    const scannerLine = document.getElementById('scanner-line'); // New
+    const scannerLine = document.getElementById('scanner-line');
     
     const uploadSection = document.getElementById('upload-section');
     const resultSection = document.getElementById('result-section');
     
     const resultImage = document.getElementById('result-image');
     const resultClass = document.getElementById('result-class');
-    const resultConfidenceText = document.getElementById('result-confidence-text'); // New
-    const progressBarFill = document.getElementById('progress-bar-fill'); // New
+    const resultConfidenceText = document.getElementById('result-confidence-text');
+    const progressBarFill = document.getElementById('progress-bar-fill');
+
+    const resultSuccess = document.getElementById('result-success');
+    const resultError = document.getElementById('result-error');
+    const errorConfidenceText = document.getElementById('error-confidence-text');
     
     const resetBtn = document.getElementById('reset-btn');
-    const homeBtn = document.getElementById('home-btn'); // New
+    const homeBtn = document.getElementById('home-btn');
 
     let currentFile = null;
 
@@ -57,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentFile = file;
                 showPreview(file);
             } else {
-                alert('Please upload an image file.');
+                alert('Harap unggah file gambar.');
             }
         }
     }
@@ -84,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dropZone.style.display = 'flex';
         scannerLine.classList.remove('active');
         predictBtn.disabled = false;
-        predictBtn.innerHTML = '<iconify-icon icon="ph:magic-wand"></iconify-icon> Identify Breed';
+        predictBtn.innerHTML = '<iconify-icon icon="ph:magic-wand"></iconify-icon> Identifikasi Ras';
     }
 
     // --- Prediction Handler ---
@@ -94,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // UI State -> Loading (Scanning Animation)
         scannerLine.classList.add('active');
         predictBtn.disabled = true;
-        predictBtn.innerHTML = '<iconify-icon icon="line-md:loading-twotone-loop"></iconify-icon> Analyzing...';
+        predictBtn.innerHTML = '<iconify-icon icon="line-md:loading-twotone-loop"></iconify-icon> Menganalisis...';
 
         const formData = new FormData();
         formData.append('file', currentFile);
@@ -112,27 +116,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     uploadSection.style.display = 'none';
                     resultSection.style.display = 'flex';
-                    
-                    resultImage.src = imagePreview.src; // Reuse preview image
-                    resultClass.textContent = data.class;
-                    
-                    // Parse confidence (e.g., "98.50%")
+                    resultImage.src = imagePreview.src;
+
                     const confValue = parseFloat(data.confidence);
-                    resultConfidenceText.textContent = `${confValue.toFixed(1)}%`;
-                    
-                    // Animate Progress Bar
-                    setTimeout(() => {
-                        progressBarFill.style.width = `${confValue}%`;
-                    }, 100);
+
+                    if (data.is_dog === false) {
+                        // NOT A DOG — show error panel
+                        resultSuccess.style.display = 'none';
+                        resultError.style.display = 'flex';
+                        errorConfidenceText.textContent = `${confValue.toFixed(1)}%`;
+                    } else {
+                        // VALID DOG — show normal result
+                        resultError.style.display = 'none';
+                        resultSuccess.style.display = 'block';
+                        resultClass.textContent = data.class;
+                        resultConfidenceText.textContent = `${confValue.toFixed(1)}%`;
+                        
+                        // Animate Progress Bar
+                        setTimeout(() => {
+                            progressBarFill.style.width = `${confValue}%`;
+                        }, 100);
+                    }
 
                 }, 800); // Artificial delay to let user see scanning animation
 
             } else {
-                throw new Error(data.error || 'Server error occurred.');
+                throw new Error(data.error || 'Terjadi kesalahan pada server.');
             }
         } catch (error) {
             console.error('Error:', error);
-            alert('Prediction Failed: ' + error.message);
+            alert('Prediksi Gagal: ' + error.message);
             // Revert state
             resetUploadState();
         }
@@ -143,31 +156,35 @@ document.addEventListener('DOMContentLoaded', () => {
         resultSection.style.display = 'none';
         uploadSection.style.display = 'flex';
         progressBarFill.style.width = '0%';
+        // Reset both panels
+        resultSuccess.style.display = 'block';
+        resultError.style.display = 'none';
     }
 
-    // --- Try Another Handler ---
+    // --- Coba Lagi Handler ---
     resetBtn.addEventListener('click', () => {
         goBackToUpload();
         resetUploadState();
     });
     
-    // --- Home Handler ---
+    // --- Beranda Handler ---
     homeBtn.addEventListener('click', () => {
         goBackToUpload();
-        resetUploadState(); // Essentially the same logic but a different button visually
+        resetUploadState();
     });
-    // --- Fun Facts Logic ---
+
+    // --- Fakta Menarik ---
     const funFacts = [
-        "A dog’s sense of smell is 10,000 to 100,000 times more sensitive than a human’s!",
-        "Chihuahuas are born with a soft spot in their skull, just like human babies.",
-        "The Basenji is the only breed of dog that can't bark, but they can yodel!",
-        "A dog's nose print is unique, much like a person's fingerprint.",
-        "Greyhounds can reach speeds up to 45 miles per hour.",
-        "When dogs kick after going to the bathroom, they are using the scent glands on their paws to mark their territory.",
-        "Puppies are born blind, deaf, and toothless.",
-        "The Afghan Hound is considered one of the oldest dog breeds in existence.",
-        "Dalmatians are born completely white; their spots develop as they grow older.",
-        "A dog's normal body temperature is between 101 and 102.5 degrees Fahrenheit."
+        "Indra penciuman anjing 10.000 hingga 100.000 kali lebih sensitif daripada manusia!",
+        "Chihuahua lahir dengan titik lunak di tengkorak mereka, sama seperti bayi manusia.",
+        "Basenji adalah satu-satunya ras anjing yang tidak bisa menggonggong, tapi mereka bisa yodel!",
+        "Sidik hidung anjing itu unik, mirip seperti sidik jari manusia.",
+        "Greyhound bisa mencapai kecepatan hingga 72 km per jam.",
+        "Saat anjing menendang tanah setelah buang air, mereka menggunakan kelenjar aroma di kaki untuk menandai wilayah.",
+        "Anak anjing lahir dalam keadaan buta, tuli, dan tidak bergigi.",
+        "Afghan Hound dianggap sebagai salah satu ras anjing tertua yang masih ada.",
+        "Dalmatian lahir sepenuhnya putih; bintik-bintik mereka berkembang seiring pertumbuhan.",
+        "Suhu tubuh normal anjing adalah antara 38,3 dan 39,2 derajat Celcius."
     ];
 
     const factElement = document.getElementById('fun-fact');

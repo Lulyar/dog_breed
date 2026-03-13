@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dog Breed Classifier</title>
+    <title>Klasifikasi Ras Anjing</title>
     <!-- Google Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Iconify -->
@@ -21,9 +21,9 @@
             <header class="header">
                 <div class="logo">
                     <iconify-icon icon="ph:dog-fill" width="36" height="36"></iconify-icon>
-                    <h1>Dog Breed Classifier</h1>
+                    <h1>Klasifikasi Ras Anjing</h1>
                 </div>
-                <p class="subtitle">Upload a high-resolution photo to let AI identify the exact breed.</p>
+                <p class="subtitle">Unggah foto beresolusi tinggi untuk mengidentifikasi ras anjing secara akurat.</p>
             </header>
 
             <div class="workspace-content">
@@ -32,24 +32,24 @@
                     <form id="upload-form" enctype="multipart/form-data">
                         <div class="drop-zone" id="drop-zone">
                             <iconify-icon icon="ph:upload-simple-light" class="upload-icon"></iconify-icon>
-                            <h3>Drag & Drop your image here</h3>
-                            <p>or</p>
-                            <label for="file-input" class="btn btn-primary">Browse Files</label>
+                            <h3>Seret & Lepas gambar di sini</h3>
+                            <p>atau</p>
+                            <label for="file-input" class="btn btn-primary">Pilih File</label>
                             <input type="file" id="file-input" name="file" accept="image/*" hidden>
-                            <p class="file-hint">Supports JPG, PNG</p>
+                            <p class="file-hint">Mendukung JPG, PNG</p>
                         </div>
                     </form>
                     <div class="preview-area" id="preview-area" style="display: none;">
-                        <button class="btn btn-icon close-btn" id="remove-img-btn" title="Remove Image">
+                        <button class="btn btn-icon close-btn" id="remove-img-btn" title="Hapus Gambar">
                             <iconify-icon icon="ph:x-bold"></iconify-icon>
                         </button>
                         <!-- Scanner Container -->
                         <div class="scanner-container">
-                            <img id="image-preview" src="#" alt="Preview">
+                            <img id="image-preview" src="#" alt="Pratinjau">
                             <div class="scanner-line" id="scanner-line" style="display: none;"></div>
                         </div>
                         <button id="predict-btn" class="btn btn-action glow-effect">
-                            <iconify-icon icon="ph:magic-wand"></iconify-icon> Identify Breed
+                            <iconify-icon icon="ph:magic-wand"></iconify-icon> Identifikasi Ras
                         </button>
                     </div>
                 </div>
@@ -59,45 +59,61 @@
                     <div class="result-layout">
                         <!-- Left: Image -->
                         <div class="result-image-wrapper">
-                            <img id="result-image" src="#" alt="Analyzed Image">
+                            <img id="result-image" src="#" alt="Gambar yang Dianalisis">
                         </div>
                         
                         <!-- Right: Details -->
                         <div class="result-details">
-                            <h2 class="result-title">AI Prediction Report</h2>
-                            
-                            <div class="result-row breed-row">
-                                <span class="label">Detected Breed:</span>
-                                <span class="value breed-name" id="result-class">Husky</span>
-                            </div>
-                            
-                            <div class="result-row confidence-row">
-                                <span class="label">Confidence Score:</span>
-                                <span class="value confidence-score" id="result-confidence-text">99.9%</span>
-                            </div>
-                            
-                            <!-- Progress Bar -->
-                            <div class="progress-container">
-                                <div class="progress-bar-fill" id="progress-bar-fill"></div>
+                            <h2 class="result-title">Laporan Prediksi AI</h2>
+
+                            <!-- Normal Result (shown when is_dog = true) -->
+                            <div id="result-success" class="result-success-content">
+                                <div class="result-row breed-row">
+                                    <span class="label">Ras Terdeteksi:</span>
+                                    <span class="value breed-name" id="result-class">Husky</span>
+                                </div>
+                                
+                                <div class="result-row confidence-row">
+                                    <span class="label">Skor Kepercayaan:</span>
+                                    <span class="value confidence-score" id="result-confidence-text">99.9%</span>
+                                </div>
+                                
+                                <!-- Progress Bar -->
+                                <div class="progress-container">
+                                    <div class="progress-bar-fill" id="progress-bar-fill"></div>
+                                </div>
+
+                                <!-- Metrics Section -->
+                                <div class="metrics-box">
+                                    <h4>Metrik Validasi Model</h4>
+                                    <div class="metric-items">
+                                        <div class="metric"><span class="m-val">94%</span><span class="m-lab">Akurasi</span></div>
+                                        <div class="metric"><span class="m-val">92%</span><span class="m-lab">F1-Score</span></div>
+                                        <div class="metric"><span class="m-val">0.18</span><span class="m-lab">Loss</span></div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Metrics Section -->
-                            <div class="metrics-box">
-                                <h4>Model Validation Metrics</h4>
-                                <div class="metric-items">
-                                    <div class="metric"><span class="m-val">94%</span><span class="m-lab">Accuracy</span></div>
-                                    <div class="metric"><span class="m-val">92%</span><span class="m-lab">F1-Score</span></div>
-                                    <div class="metric"><span class="m-val">0.18</span><span class="m-lab">Loss</span></div>
+                            <!-- Error Result (shown when is_dog = false) -->
+                            <div id="result-error" class="result-error-content" style="display: none;">
+                                <div class="error-panel">
+                                    <iconify-icon icon="ph:warning-circle-fill" class="error-icon"></iconify-icon>
+                                    <h3 class="error-heading">Gambar Bukan Anjing!</h3>
+                                    <p class="error-message">Gambar yang diunggah kemungkinan bukan anjing atau tidak dapat dikenali sebagai ras yang didukung.</p>
+                                    <div class="error-confidence">
+                                        <span class="label">Skor Kepercayaan:</span>
+                                        <span class="value" id="error-confidence-text">21.4%</span>
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Action Buttons -->
                             <div class="action-buttons">
                                 <button id="reset-btn" class="btn btn-outline">
-                                    <iconify-icon icon="ph:arrow-counter-clockwise"></iconify-icon> Try Another
+                                    <iconify-icon icon="ph:arrow-counter-clockwise"></iconify-icon> Coba Lagi
                                 </button>
                                 <button id="home-btn" class="btn btn-secondary">
-                                    <iconify-icon icon="ph:house"></iconify-icon> Home
+                                    <iconify-icon icon="ph:house"></iconify-icon> Beranda
                                 </button>
                             </div>
                         </div>
@@ -106,14 +122,14 @@
             </div>
             
             <footer class="footer">
-                <p>Powered by EfficientNetV2-B0 Deep Learning &bull; 10 Breeds Supported</p>
+                <p>Didukung oleh EfficientNetV2-B0 Deep Learning &bull; 10 Ras Didukung</p>
             </footer>
         </main>
 
         <!-- RIGHT: SIDEBAR -->
         <aside class="sidebar glass-card">
             <div class="sidebar-section">
-                <h3><iconify-icon icon="ph:list-checks"></iconify-icon> Supported Breeds</h3>
+                <h3><iconify-icon icon="ph:list-checks"></iconify-icon> Ras yang Didukung</h3>
                 <ul class="breed-list">
                     <li><iconify-icon icon="ph:paw-print-fill"></iconify-icon> Chihuahua</li>
                     <li><iconify-icon icon="ph:paw-print-fill"></iconify-icon> Japanese Spaniel</li>
@@ -129,8 +145,8 @@
             </div>
 
             <div class="sidebar-section fun-fact-box">
-                <h3><iconify-icon icon="ph:lightbulb"></iconify-icon> Did You Know?</h3>
-                <p class="fun-fact-text" id="fun-fact">A dog’s sense of smell is 10,000 to 100,000 times more sensitive than a human’s!</p>
+                <h3><iconify-icon icon="ph:lightbulb"></iconify-icon> Tahukah Kamu?</h3>
+                <p class="fun-fact-text" id="fun-fact">Indra penciuman anjing 10.000 hingga 100.000 kali lebih sensitif daripada manusia!</p>
             </div>
         </aside>
     </div>
